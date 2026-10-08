@@ -20,22 +20,32 @@ if (menuButton) {
 const lectureGrid = document.getElementById('lecture-grid');
 if (lectureGrid) {
   let month = 'all';
+  let shownCount = 5;
   const regionSelect = document.getElementById('region-filter');
+  const moreButton = document.getElementById('lecture-show-more');
+  const mobileList = window.matchMedia('(max-width: 760px)');
   const updateFilters = () => {
-    let visible = 0;
+    let matched = 0;
     lectureGrid.querySelectorAll('.lecture-card').forEach(card => {
-      const show = (month === 'all' || card.dataset.month === month) && (regionSelect.value === 'all' || card.dataset.region === regionSelect.value);
-      card.hidden = !show;
-      if (show) visible += 1;
+      const matches = (month === 'all' || card.dataset.month === month) && (regionSelect.value === 'all' || card.dataset.region === regionSelect.value);
+      if (matches) matched += 1;
+      card.hidden = !matches || (mobileList.matches && matched > shownCount);
     });
-    document.querySelector('.no-filter-results').hidden = visible > 0;
+    document.querySelector('.no-filter-results').hidden = matched > 0;
+    const remaining = matched - shownCount;
+    moreButton.hidden = !mobileList.matches || remaining <= 0;
+    if (!moreButton.hidden) moreButton.textContent = `강의 ${Math.min(5, remaining)}개 더 보기 (남은 ${remaining}개)`;
   };
   document.querySelectorAll('[data-filter-month]').forEach(button => button.addEventListener('click', () => {
     month = button.dataset.filterMonth;
+    shownCount = 5;
     document.querySelectorAll('[data-filter-month]').forEach(item => item.classList.toggle('active', item === button));
     updateFilters();
   }));
-  regionSelect.addEventListener('change', updateFilters);
+  regionSelect.addEventListener('change', () => { shownCount = 5; updateFilters(); });
+  moreButton.addEventListener('click', () => { shownCount += 5; updateFilters(); });
+  mobileList.addEventListener('change', updateFilters);
+  updateFilters();
 }
 
 document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventListener('submit', event => {

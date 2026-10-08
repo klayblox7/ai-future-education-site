@@ -55,6 +55,13 @@ test('admin can publish and update a lecture, and inquiries are stored', async (
     assert.match(published, /href="\/lectures\/1"/);
     assert.match(published, /data-region="부산"/);
     assert.match(published, /추천 대상<\/strong> 처음 배우는 분/);
+    assert.match(published, /class="lecture-mobile-row"/);
+    assert.match(published, /id="lecture-show-more"/);
+
+    const addLecture = db.prepare('INSERT INTO lectures(title,topic,start_at,region,landing_url,published) VALUES(?,?,?,?,?,1)');
+    for (let day = 16; day <= 25; day += 1) addLecture.run(`추가 강의 ${day}`, 'AI 활용', `2027-11-${day}T10:00`, '부산', 'https://example.com/lecture');
+    const manyLectures = await (await fetch(base)).text();
+    assert.equal((manyLectures.match(/class="lecture-mobile-row"/g) || []).length, 11);
 
     const item = db.prepare('SELECT id FROM lectures LIMIT 1').get();
     const detail = await fetch(`${base}/lectures/${item.id}`);
