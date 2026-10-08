@@ -1,0 +1,7 @@
+data/*.sqlite
+data/*.sqlite-*
+data/uploads/
+data/
+.env
+.env.local
+node_modules/
