@@ -22,6 +22,16 @@
 .admin-image-grid img{width:100%;height:125px;object-fit:cover;border-radius:8px}
 .admin-image-grid figcaption{font-size:12px;color:#566781;margin:9px 0;min-height:18px}
 .admin-image-grid form{margin:0}
+.admin-help{max-width:720px;color:#53627b;font-size:14px;line-height:1.6}
+.admin-review-list{display:grid;gap:12px}
+.admin-review-item{display:grid;grid-template-columns:150px minmax(0,1fr) auto;align-items:center;gap:18px;padding:12px;background:#fff;border:1px solid #dce3ed;border-radius:13px}
+.admin-review-item img{display:block;width:150px;height:96px;object-fit:cover;border-radius:8px}
+.admin-review-item h3{margin:7px 0 4px;font-size:18px}
+.admin-review-item p{margin:0 0 5px;color:#53627b;font-size:13px;line-height:1.5}
+.admin-review-item small{color:#6d7b92}
+.admin-review-item>a{color:#1954d8;font-size:13px;font-weight:800;white-space:nowrap}
+.review-image-preview img{display:block;max-width:320px;width:100%;height:auto;margin:6px 0 18px;border-radius:10px}
+@media(max-width:620px){.admin-review-item{grid-template-columns:92px minmax(0,1fr);gap:12px}.admin-review-item img{width:92px;height:82px}.admin-review-item>a{grid-column:2}.admin-review-item h3{font-size:16px}}
 .image-upload-form{border-radius:12px;background:#f5f8ff;padding:20px}
 .image-upload-form input[type=file]{background:#fff}
 .landing-image-preview{margin:18px 0}

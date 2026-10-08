@@ -33,29 +33,63 @@
   ],
   "images": [
     {
-      "lecture_id": 1,
-      "filename": "addaf9f7b86a2a3eb92ae248b4ecd336.png",
-      "caption": "",
-      "placement": "gallery"
-    },
-    {
-      "lecture_id": 1,
-      "filename": "e1d83adb4408a63fa9c6d869a931cdb7.jpg",
-      "caption": "",
-      "placement": "landing"
-    },
-    {
-      "lecture_id": 2,
-      "filename": "f4672aa4e56c12e8f83705584ad58128.jpg",
-      "caption": "",
-      "placement": "landing"
-    },
-    {
       "lecture_id": 2,
       "filename": "2e14df58cbf2e21cd758b683109fc035.png",
       "caption": "",
       "placement": "gallery"
+    },
+    {
+      "lecture_id": 1,
+      "filename": "d30b878c00bc4b718958abab693f21f0.jpg",
+      "caption": "",
+      "placement": "landing"
+    },
+    {
+      "lecture_id": 1,
+      "filename": "a8c1ec760ceb9d07d84cb1a180d57155.png",
+      "caption": "",
+      "placement": "gallery"
+    },
+    {
+      "lecture_id": 2,
+      "filename": "76c6eefac747ced058a2623b83ea4cb5.jpg",
+      "caption": "",
+      "placement": "landing"
     }
   ],
-  "instructors": []
+  "instructors": [],
+  "reviews": [
+    {
+      "title": "함께 모여 배우는 AI",
+      "body": "여러 세대가 한자리에 모여 AI를 일상에 활용하는 방법을 함께 살펴봤습니다.",
+      "image_path": "/assets/review-b1.jpg",
+      "image_alt": "강연장을 가득 채운 참가자들이 발표를 듣는 모습",
+      "sort_order": 1,
+      "published": 1
+    },
+    {
+      "title": "배움으로 채운 강의실",
+      "body": "큰 화면의 설명을 따라가며 낯선 AI 도구를 조금씩 친숙하게 만나는 시간이었습니다.",
+      "image_path": "/assets/review-b2.jpg",
+      "image_alt": "강의실에서 참가자들이 화면을 보며 강연을 듣는 모습",
+      "sort_order": 2,
+      "published": 1
+    },
+    {
+      "title": "눈으로 보고 익히는 실습",
+      "body": "실제 사용 화면을 보며 단계를 하나씩 확인하니 AI 활용법이 한층 선명해집니다.",
+      "image_path": "/assets/review-b3.jpg",
+      "image_alt": "강사가 AI 도구 사용 화면을 시연하는 모습",
+      "sort_order": 3,
+      "published": 1
+    },
+    {
+      "title": "함께 나누는 새로운 가능성",
+      "body": "현장의 집중과 배움의 열기 속에서 각자의 일상에 쓸 아이디어를 발견했습니다.",
+      "image_path": "/assets/review-b4.jpg",
+      "image_alt": "참가자들이 강사의 설명과 발표 자료를 보는 모습",
+      "sort_order": 4,
+      "published": 1
+    }
+  ]
 }

@@ -20,6 +20,7 @@ test('published lecture seed imports into a fresh data directory', () => {
     assert.equal(seeded.prepare('SELECT COUNT(*) AS n FROM lecture_images').get().n, 4);
     assert.equal(seeded.prepare("SELECT COUNT(*) AS n FROM lecture_images WHERE placement='landing'").get().n, 2);
     assert.equal(seeded.prepare('SELECT COUNT(*) AS n FROM inquiries').get().n, 0);
+    assert.equal(seeded.prepare('SELECT COUNT(*) AS n FROM reviews WHERE published=1').get().n, 4);
     seeded.close();
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -48,12 +49,37 @@ test('admin can publish and update a lecture, and inquiries are stored', async (
     assert.match(emptyHtml, /실무 중심의 맞춤형 교육을 제공합니다/);
     assert.match(emptyHtml, /맞춤형 커리큘럼/);
     assert.match(emptyHtml, /실습 중심 교육/);
+    assert.match(emptyHtml, /사진으로 보는 수업 후기/);
+    assert.equal((emptyHtml.match(/class="review-card"/g) || []).length, 4);
 
     const login = await fetch(`${base}/admin/login`, { method: 'POST', redirect: 'manual', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: base }, body: new URLSearchParams({ password: process.env.ADMIN_PASSWORD }) });
     assert.equal(login.status, 303);
     cookie = login.headers.get('set-cookie').split(';')[0];
     const form = await fetch(`${base}/admin/lectures/new`, { headers: { Cookie: cookie } });
     const csrf = (await form.text()).match(/name="csrf" value="([a-f0-9]+)"/)[1];
+    const reviewForm = new FormData();
+    reviewForm.set('csrf', csrf);
+    reviewForm.set('title', '새 수업 현장');
+    reviewForm.set('body', '사진과 함께 배우는 시간이었습니다.');
+    reviewForm.set('image_alt', '수업 현장 사진');
+    reviewForm.set('sort_order', '9');
+    reviewForm.set('published', '1');
+    reviewForm.set('image', new Blob([Buffer.from('89504e470d0a1a0a0000000049454e440000000000000000000000000000000000000000', 'hex')], { type: 'image/png' }), 'review.png');
+    const newReview = await fetch(`${base}/admin/reviews/save`, { method: 'POST', redirect: 'manual', headers: { Cookie: cookie, Origin: base }, body: reviewForm });
+    assert.equal(newReview.status, 303);
+    const savedReview = db.prepare("SELECT * FROM reviews WHERE title='새 수업 현장'").get();
+    assert.ok(savedReview);
+    assert.equal((await fetch(`${base}${savedReview.image_path}`)).status, 200);
+    assert.match(await (await fetch(base)).text(), /새 수업 현장/);
+    reviewForm.set('id', String(savedReview.id));
+    reviewForm.delete('image');
+    reviewForm.set('title', '수정한 후기');
+    reviewForm.delete('published');
+    assert.equal((await fetch(`${base}/admin/reviews/save`, { method: 'POST', redirect: 'manual', headers: { Cookie: cookie, Origin: base }, body: reviewForm })).status, 303);
+    assert.doesNotMatch(await (await fetch(base)).text(), /수정한 후기/);
+    assert.match(await (await fetch(`${base}/admin/reviews`, { headers: { Cookie: cookie } })).text(), /수정한 후기/);
+    assert.equal((await fetch(`${base}/admin/reviews/delete`, { method: 'POST', redirect: 'manual', headers: { Cookie: cookie, Origin: base, 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ csrf, id: String(savedReview.id) }) })).status, 303);
+    assert.equal((await fetch(`${base}${savedReview.image_path}`)).status, 404);
     const lecture = { csrf, title: 'AI 3종 활용 입문', topic: '생성형 AI', summary: '직접 써보는 입문 강의', detail_body: '첫 번째 문단\n\n두 번째 <안전한> 문단', audience: '처음 배우는 분', start_at: '2027-11-15T14:00', region: '부산', location: '교육장', format: '오프라인', price_label: '무료', landing_url: 'https://example.com/lecture', published: '1' };
     const create = await fetch(`${base}/admin/lectures/save`, { method: 'POST', redirect: 'manual', headers: { Cookie: cookie, Origin: base, 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(lecture) });
     assert.equal(create.status, 303);

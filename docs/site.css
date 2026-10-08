@@ -88,11 +88,21 @@ body:not(.admin-body) .about-points li{padding:14px 0;border-top:1px solid var(-
 body:not(.admin-body) .about-points strong{display:block;margin-bottom:3px;color:#174dd5;font-size:17px;line-height:1.4}
 body:not(.admin-body) .about-points span{display:block;color:var(--muted);font-size:16px;line-height:1.65;word-break:keep-all}
 body:not(.admin-body) .instructors-section{background:#f9fbff}
+body:not(.admin-body) .reviews-section{background:#f7f9fd}
+body:not(.admin-body) .review-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+body:not(.admin-body) .review-card{overflow:hidden;background:#fff;border-radius:15px;box-shadow:0 10px 24px rgba(16,36,71,.06)}
+body:not(.admin-body) .review-card img{display:block;width:100%;aspect-ratio:1.7;object-fit:cover}
+body:not(.admin-body) .review-copy{padding:22px 24px 26px}
+body:not(.admin-body) .review-copy h3{margin:0 0 8px;color:#102447;font-size:22px;line-height:1.35;letter-spacing:-.025em;word-break:keep-all}
+body:not(.admin-body) .review-copy p{margin:0;color:#4b5d77;font-size:16px;line-height:1.65;word-break:keep-all}
+body:not(.admin-body) .review-empty{margin:0;color:#4b5d77}
 body:not(.admin-body) .instructor-pending{border-color:#dce5f3;background:#fff}
 body:not(.admin-body) .instructor-pending h3{font-size:21px}
 body:not(.admin-body) .instructor-pending p{font-size:16px}
 .instructor-feature-image{display:block;width:100%;height:auto;border:1px solid #dce7f8;border-radius:20px;box-shadow:0 12px 28px rgba(24,66,131,.06)}
 @media(max-width:760px){.instructor-feature-image{border-radius:14px}}
+@media(max-width:760px){body:not(.admin-body) .review-grid{gap:10px}body:not(.admin-body) .review-card{border-radius:12px}body:not(.admin-body) .review-card img{aspect-ratio:1.25}body:not(.admin-body) .review-copy{padding:14px 13px 17px}body:not(.admin-body) .review-copy h3{font-size:16px;margin-bottom:6px}body:not(.admin-body) .review-copy p{font-size:13px;line-height:1.45}}
+@media(max-width:380px){body:not(.admin-body) .review-grid{grid-template-columns:1fr}body:not(.admin-body) .review-card img{aspect-ratio:1.7}body:not(.admin-body) .review-copy h3{font-size:18px}body:not(.admin-body) .review-copy p{font-size:15px}}
 body:not(.admin-body) .pending-star{color:var(--blue)}
 body:not(.admin-body) .faq-section{background:#fff}
 body:not(.admin-body) .faq-grid{gap:80px}

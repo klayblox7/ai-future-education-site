@@ -11,6 +11,7 @@ const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || process.env.RENDER_EXTERNAL_
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const db = new DatabaseSync(path.join(DATA_DIR, 'site.sqlite'));
+const reviewsTableExists = Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='reviews'").get());
 db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS lectures (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,7 +43,22 @@ CREATE TABLE IF NOT EXISTS lecture_images (
   filename TEXT NOT NULL, caption TEXT NOT NULL DEFAULT '',
   placement TEXT NOT NULL DEFAULT 'gallery',
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS reviews (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, body TEXT NOT NULL,
+  image_path TEXT NOT NULL, image_alt TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0, published INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );`);
+if (!reviewsTableExists) {
+  const insertReview = db.prepare('INSERT INTO reviews(title,body,image_path,image_alt,sort_order,published) VALUES(?,?,?,?,?,1)');
+  [
+    ['함께 모여 배우는 AI', '여러 세대가 한자리에 모여 AI를 일상에 활용하는 방법을 함께 살펴봤습니다.', 'review-b1.jpg', '강연장을 가득 채운 참가자들이 발표를 듣는 모습'],
+    ['배움으로 채운 강의실', '큰 화면의 설명을 따라가며 낯선 AI 도구를 조금씩 친숙하게 만나는 시간이었습니다.', 'review-b2.jpg', '강의실에서 참가자들이 화면을 보며 강연을 듣는 모습'],
+    ['눈으로 보고 익히는 실습', '실제 사용 화면을 보며 단계를 하나씩 확인하니 AI 활용법이 한층 선명해집니다.', 'review-b3.jpg', '강사가 AI 도구 사용 화면을 시연하는 모습'],
+    ['함께 나누는 새로운 가능성', '현장의 집중과 배움의 열기 속에서 각자의 일상에 쓸 아이디어를 발견했습니다.', 'review-b4.jpg', '참가자들이 강사의 설명과 발표 자료를 보는 모습']
+  ].forEach(([title, body, image, alt], index) => insertReview.run(title, body, `/assets/${image}`, alt, index + 1));
+}
 if (!db.prepare('PRAGMA table_info(lectures)').all().some(column => column.name === 'audience')) {
   db.exec("ALTER TABLE lectures ADD COLUMN audience TEXT NOT NULL DEFAULT ''");
 }
@@ -82,7 +98,7 @@ const newSession = () => { const token = crypto.randomBytes(32).toString('hex');
 const secureCookie = req => req.socket.encrypted || PUBLIC_ORIGIN.startsWith('https://') ? '; Secure' : '';
 const verifyOrigin = req => { const origin = req.headers.origin; if (!origin) return true; const expected = PUBLIC_ORIGIN || `http://${req.headers.host}`; return origin === expected; };
 const csrfField = session => `<input type="hidden" name="csrf" value="${e(session.csrf)}">`;
-const adminShell = (title, content) => html(title, `<header class="admin-header"><a href="/admin" class="admin-logo">AI 미래교육원 <span>관리자</span></a><nav><a href="/admin">대시보드</a><a href="/admin/lectures/new">강의 추가</a><a href="/admin/instructors/new">강사 추가</a><a href="/admin/registrations">강의 신청</a><a href="/admin/inquiries">문의함</a><a href="/" target="_blank" rel="noopener">사이트 보기 ↗</a><form action="/admin/logout" method="post"><button>로그아웃</button></form></nav></header><main class="admin-main"><div class="admin-heading"><p class="eyebrow">OPERATIONS</p><h1>${e(title)}</h1></div>${content}</main>`, { admin: true });
+const adminShell = (title, content) => html(title, `<header class="admin-header"><a href="/admin" class="admin-logo">AI 미래교육원 <span>관리자</span></a><nav><a href="/admin">대시보드</a><a href="/admin/lectures/new">강의 추가</a><a href="/admin/reviews">후기 관리</a><a href="/admin/instructors/new">강사 추가</a><a href="/admin/registrations">강의 신청</a><a href="/admin/inquiries">문의함</a><a href="/" target="_blank" rel="noopener">사이트 보기 ↗</a><form action="/admin/logout" method="post"><button>로그아웃</button></form></nav></header><main class="admin-main"><div class="admin-heading"><p class="eyebrow">OPERATIONS</p><h1>${e(title)}</h1></div>${content}</main>`, { admin: true });
 
 function lectureCard(item) {
   const detail = `/lectures/${item.id}`;
@@ -95,6 +111,8 @@ function lectureCard(item) {
 function renderHome(message = '') {
   const lectures = db.prepare("SELECT lectures.*, (SELECT filename FROM lecture_images WHERE lecture_id=lectures.id AND placement='gallery' ORDER BY id LIMIT 1) AS cover_file FROM lectures WHERE published=1 AND substr(start_at,1,10)>=? ORDER BY start_at ASC, id ASC").all(today());
   const instructors = db.prepare('SELECT * FROM instructors WHERE published=1 ORDER BY id ASC').all();
+  const reviews = db.prepare('SELECT * FROM reviews WHERE published=1 ORDER BY sort_order ASC, id ASC').all();
+  const reviewArea = reviews.length ? `<div class="review-grid">${reviews.map(x => `<article class="review-card"><img src="${e(x.image_path)}" alt="${e(x.image_alt || x.title)}" loading="lazy"><div class="review-copy"><h3>${e(x.title)}</h3><p>${e(x.body)}</p></div></article>`).join('')}</div>` : '<p class="review-empty">수업 현장을 곧 소개하겠습니다.</p>';
   const months = [...new Set(lectures.map(x => x.start_at.slice(0, 7)))];
   const regions = [...new Set(lectures.map(x => x.region).filter(Boolean))];
   const filters = lectures.length ? `<div class="filters"><div class="filter-group"><button class="filter active" data-filter-month="all">전체 일정</button>${months.map(x => `<button class="filter" data-filter-month="${e(x)}">${e(monthText(x))}</button>`).join('')}</div><label class="region-select">지역 <select id="region-filter"><option value="all">전체 지역</option>${regions.map(x => `<option value="${e(x)}">${e(x)}</option>`).join('')}</select></label></div>` : '';
@@ -104,6 +122,7 @@ function renderHome(message = '') {
   <section class="section lectures-section" id="lectures"><div class="container"><div class="section-head"><div><p class="eyebrow">강의 일정</p><h2>나에게 맞는 강의를 찾아보세요</h2><p class="section-sub">날짜와 지역을 확인하고 강의를 누르면 자세한 내용을 볼 수 있어요.</p></div></div>${filters}${lectureArea}</div></section>
   <section class="section approach-section" id="approach"><div class="container"><div class="section-head"><div><h2>어렵게 설명하지 않을게요</h2><p class="section-sub">처음 배우는 분도 직접 해보며 익힐 수 있도록 준비합니다.</p></div></div><div class="approach-grid"><article><div class="approach-copy"><h3>AI 기초부터 차근차근</h3><p>낯선 용어도 쉽게 배워요.</p></div><div class="approach-art art-basics" aria-hidden="true"></div></article><article><div class="approach-copy"><h3>보면서 직접 실습</h3><p>강사와 하나씩 따라 해요.</p></div><div class="approach-art art-practice" aria-hidden="true"></div></article><article><div class="approach-copy"><h3>막히면 바로 질문</h3><p>궁금한 건 그 자리에서 물어요.</p></div><div class="approach-art art-question" aria-hidden="true"></div></article><article><div class="approach-copy"><h3>배운 뒤 바로 활용</h3><p>일상과 업무에 써봐요.</p></div><div class="approach-art art-life" aria-hidden="true"></div></article></div></div></section>
   <section class="section about-section" id="about"><div class="container about-grid"><div class="about-card"><img src="/assets/about-learning.jpg" alt="AI 미래교육원 강사와 학습자가 함께 AI를 배우는 장면. 배움은 가볍게, 가능성은 넓게." width="1672" height="941" loading="lazy"></div><div class="about-copy"><p class="eyebrow">교육원 소개</p><h2>AI를 처음 만나는 순간부터<br>함께하겠습니다</h2><p>AI 미래교육원은 누구나 쉽게 AI를 배울 수 있도록 실무 중심의 맞춤형 교육을 제공합니다.</p><ul class="about-points"><li><strong>맞춤형 커리큘럼</strong><span>기초 입문부터 기업·관공서 출강, 심화 과정(전자책·영상·이미지 제작)까지</span></li><li><strong>다양한 프로그램</strong><span>대중과 폭넓게 소통하는 무료 행사부터 깊이있는 유료 프로그램까지 진행</span></li><li><strong>실습 중심 교육</strong><span>명확한 학습 목표 아래 직접 만들어 보며 익히는 실무 지향 수업</span></li></ul></div></div></section>
+  <section class="section reviews-section" id="reviews"><div class="container"><div class="section-head"><div><h2>사진으로 보는 수업 후기</h2><p class="section-sub">함께 배우고 직접 살펴본 AI 강의 현장을 소개합니다.</p></div></div>${reviewArea}</div></section>
   <section class="section instructors-section" id="instructors"><div class="container"><div class="section-head"><div><p class="eyebrow">강사진</p><h2>함께 배우는 강사진</h2><p class="section-sub">강사별 전문 분야와 담당 강의를 확인해 보세요.</p></div></div>${instructorArea}</div></section>
   <section class="section faq-section" id="faq"><div class="container faq-grid"><div><p class="eyebrow">자주 묻는 질문</p><h2>궁금한 점을 확인하세요</h2><p>더 자세한 내용은 각 강의의 상세 페이지에서 안내합니다.</p></div><div class="faq-list"><details><summary>무료로 수강할 수 있나요?<span>+</span></summary><p>AI미래교육원 특강은 기업의 후원금을 바탕으로 운영되므로, 신청하신 모든 분이 수강료 부담 없이 참여하실 수 있습니다.</p></details><details><summary>메인 강연은 얼마나 진행되나요?<span>+</span></summary><p>본 강연은 약 90분가량 진행될 예정입니다.</p></details><details><summary>행사를 후원하는 기업은 어디인가요?<span>+</span></summary><p>'보람상조'의 지원으로 마련되었습니다.</p></details><details><summary>후원사 홍보시간 소요 시간은요?<span>+</span></summary><p>대략 40분에서 70분 정도 소요됩니다. 다만, 당일 현장 분위기와 상황에 따라 유동적으로 변동될 수 있습니다.</p></details></div></div></section>
   <section class="contact-section" id="contact"><div class="container contact-grid"><div><p class="eyebrow">문의하기</p><h2>궁금한 점이 있나요?</h2><p>강의 일정이나 단체 교육이 궁금하면 편하게 문의해 주세요.</p></div><form action="/inquiries" method="post" class="contact-form"><h3>문의 남기기</h3>${message ? `<div class="form-message">${e(message)}</div>` : ''}<label>이름 <input name="name" maxlength="50" required autocomplete="name" placeholder="성함을 입력해 주세요"></label><label>연락처 <input name="contact" maxlength="100" required placeholder="전화번호 또는 이메일"></label><label>문의 유형 <select name="kind" required><option value="">선택해 주세요</option><option>강의 일정</option><option>기업·단체 교육</option><option>기타 문의</option></select></label><label>문의 내용 <textarea name="message" maxlength="2000" rows="4" required placeholder="궁금한 점을 적어주세요"></textarea></label><label class="consent"><input type="checkbox" name="consent" value="yes" required><span><a href="/privacy" target="_blank" rel="noopener">개인정보처리방침</a>을 확인하고 문의 처리를 위한 수집·이용에 동의합니다.</span></label><input class="honeypot" name="website" tabindex="-1" autocomplete="off" aria-hidden="true"><button class="button button-primary" type="submit">문의 보내기 <span>→</span></button></form></div></section></main>`);
@@ -173,6 +192,16 @@ function instructorForm(item, session, error = '') {
   return adminShell(isNew ? '강사 추가' : '강사 수정', `<div class="admin-card">${error ? `<div class="admin-error">${e(error)}</div>` : ''}<form action="/admin/instructors/save" method="post" class="admin-form">${csrfField(session)}<input type="hidden" name="id" value="${e(item.id || '')}"><div class="field-grid"><label>이름 <input name="name" value="${e(item.name)}" maxlength="60" required></label><label>전문 분야 <input name="role" value="${e(item.role)}" maxlength="100" placeholder="예: 생성형 AI 실무 강사"></label></div><label>소개 <textarea name="bio" maxlength="600" rows="5" placeholder="대표 경력과 담당 강의를 간결하게 적어주세요">${e(item.bio)}</textarea></label><label>사진 URL <input type="url" name="photo_url" value="${e(item.photo_url)}" placeholder="https://..."><small>강사 사진의 공개 HTTPS 주소를 입력하세요. 비워 두면 이니셜이 표시됩니다.</small></label><label class="admin-check"><input type="checkbox" name="published" value="1" ${item.published ? 'checked' : ''}> 홈페이지에 공개</label><div class="form-actions"><button class="admin-primary" type="submit">${isNew ? '강사 등록' : '변경 저장'}</button><a href="/admin">취소</a></div></form>${isNew ? '' : `<form action="/admin/instructors/delete" method="post" class="delete-form" data-confirm="이 강사를 삭제할까요? 되돌릴 수 없습니다.">${csrfField(session)}<input type="hidden" name="id" value="${item.id}"><button class="delete-button">강사 삭제</button></form>`}</div>`);
 }
 
+function renderReviews(session) {
+  const items = db.prepare('SELECT * FROM reviews ORDER BY sort_order ASC, id ASC').all();
+  return adminShell('후기 관리', `<div class="admin-section-title"><h2>수업 후기 ${items.length}개</h2><a class="admin-primary" href="/admin/reviews/new">+ 후기 추가</a></div><p class="admin-help">공개된 후기는 홈페이지의 강사진 소개 바로 위에 표시됩니다. 제목과 설명은 실제 수업 현장을 바탕으로 작성해 주세요.</p><div class="admin-review-list">${items.length ? items.map(x => `<article class="admin-review-item"><img src="${e(x.image_path)}" alt="${e(x.image_alt || x.title)}"><div><span class="status ${x.published ? 'published' : ''}">${x.published ? '공개' : '비공개'}</span><h3>${e(x.title)}</h3><p>${e(x.body)}</p><small>표시 순서 ${x.sort_order}</small></div><a href="/admin/reviews/${x.id}">수정 →</a></article>`).join('') : '<div class="admin-card">등록된 후기가 없습니다. 첫 후기를 추가해 주세요.</div>'}</div>`);
+}
+
+function reviewForm(item, session, error = '') {
+  const isNew = !item.id;
+  return adminShell(isNew ? '후기 추가' : '후기 수정', `<div class="admin-card">${error ? `<div class="admin-error" role="alert">${e(error)}</div>` : ''}<form action="/admin/reviews/save" method="post" enctype="multipart/form-data" class="admin-form">${csrfField(session)}<input type="hidden" name="id" value="${e(item.id || '')}"><label>제목 <input name="title" value="${e(item.title || '')}" maxlength="80" required placeholder="예: 함께 모여 배우는 AI"></label><label>내용 <textarea name="body" maxlength="400" rows="5" required placeholder="수업 현장의 모습을 짧고 긍정적으로 소개해 주세요">${e(item.body || '')}</textarea></label><label>사진 설명 <input name="image_alt" value="${e(item.image_alt || '')}" maxlength="160" placeholder="예: 참가자들이 강연을 듣는 모습"><small>이미지를 볼 수 없는 방문자를 위해 장면을 설명해 주세요.</small></label>${item.image_path ? `<div class="review-image-preview"><img src="${e(item.image_path)}" alt="현재 후기 사진"></div>` : ''}<label>사진 ${isNew ? '(필수)' : '(변경할 때만 선택)'} <input type="file" name="image" accept="image/jpeg,image/png,image/webp" ${isNew ? 'required' : ''}><small>JPG, PNG, WebP · 최대 8MB</small></label><div class="field-grid"><label>표시 순서 <input type="number" name="sort_order" value="${e(item.sort_order ?? 0)}" min="0" max="999" required></label></div><label class="admin-check"><input type="checkbox" name="published" value="1" ${item.published ? 'checked' : ''}> 홈페이지에 공개</label><div class="form-actions"><button class="admin-primary" type="submit">${isNew ? '후기 등록' : '변경 저장'}</button><a href="/admin/reviews">취소</a></div></form>${isNew ? '' : `<form action="/admin/reviews/delete" method="post" class="delete-form" data-confirm="이 후기를 삭제할까요? 되돌릴 수 없습니다.">${csrfField(session)}<input type="hidden" name="id" value="${item.id}"><button class="delete-button">후기 삭제</button></form>`}</div>`);
+}
+
 function renderInquiries() { const items = db.prepare('SELECT * FROM inquiries ORDER BY id DESC').all(); return adminShell('문의함', `<div class="inquiry-list">${items.length ? items.map(x => `<article class="inquiry-item"><div><span class="tag">${e(x.kind)}</span><time>${e(x.created_at)}</time></div><h2>${e(x.name)} <small>${e(x.contact)}</small></h2><p>${e(x.message).replace(/\n/g, '<br>')}</p></article>`).join('') : '<div class="admin-card">아직 접수된 문의가 없습니다.</div>'}</div>`); }
 
 function renderRegistrations() { const items = db.prepare('SELECT registrations.*, lectures.title AS lecture_title FROM registrations LEFT JOIN lectures ON lectures.id=registrations.lecture_id ORDER BY registrations.id DESC').all(); return adminShell('강의 신청', `<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>접수일</th><th>강의</th><th>신청자</th><th>연락처</th><th>성별·연령</th><th>시간대</th><th>유입 경로</th></tr></thead><tbody>${items.length ? items.map(x => { const phone = x.contact.replace(/^(01\d)(\d{3,4})(\d{4})$/, '$1-$2-$3'); return `<tr><td>${e(x.created_at)}</td><td>${e(x.lecture_title || '삭제된 강의')}</td><td><strong>${e(x.name)}</strong></td><td><a href="tel:${e(x.contact)}">${e(phone)}</a></td><td>${e(x.gender)} · ${e(x.age_range)}</td><td>${e(x.session_preference)}</td><td>${e(x.referral_source)}</td></tr>`; }).join('') : '<tr><td colspan="7" class="table-empty">아직 접수된 강의 신청이 없습니다.</td></tr>'}</tbody></table></div>`); }
@@ -230,7 +259,8 @@ async function route(req, res) {
     if (!limit(loginAttempts, ip, 10, 15 * 60 * 1000)) return send(res, 429, 'Too many attempts', 'text/plain');
     const body = await readBody(req);
     const configured = process.env.ADMIN_PASSWORD;
-    if (!configured || configured.length < 12) return send(res, 503, html('관리자 설정 필요', '<main class="legal-page container"><h1>관리자 비밀번호 설정이 필요합니다.</h1><p>서버 환경 변수 ADMIN_PASSWORD에 12자 이상의 비밀번호를 설정해 주세요.</p></main>', { admin: true }));
+    const localShortPassword = process.env.ALLOW_SHORT_LOCAL_ADMIN_PASSWORD === '1' && !PUBLIC_ORIGIN && ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(ip);
+    if (!configured || configured.length < (localShortPassword ? 6 : 12)) return send(res, 503, html('관리자 설정 필요', '<main class="legal-page container"><h1>관리자 비밀번호 설정이 필요합니다.</h1><p>온라인 운영에는 12자 이상의 관리자 비밀번호를 설정해 주세요.</p></main>', { admin: true }));
     const inputHash = crypto.createHash('sha256').update(body.password || '').digest();
     const expectedHash = crypto.createHash('sha256').update(configured).digest();
     if (!crypto.timingSafeEqual(inputHash, expectedHash)) return redirect(res, '/admin/login?error=1');
@@ -239,6 +269,38 @@ async function route(req, res) {
   if (pathname.startsWith('/admin')) {
     const session = currentSession(req);
     if (!session) return redirect(res, '/admin/login');
+    if (req.method === 'POST' && pathname === '/admin/reviews/save') {
+      if (!verifyOrigin(req)) return send(res, 403, 'Forbidden', 'text/plain');
+      if (!String(req.headers['content-type'] || '').startsWith('multipart/form-data') || Number(req.headers['content-length'] || 0) > 9 * 1024 * 1024) return send(res, 413, '사진 파일이 너무 큽니다.', 'text/plain; charset=utf-8');
+      try {
+        const bytes = await readUpload(req, 9 * 1024 * 1024);
+        const form = await new Request('http://localhost/upload', { method: 'POST', headers: { 'content-type': req.headers['content-type'] }, body: bytes }).formData();
+        if (form.get('csrf') !== session.csrf) return send(res, 403, 'Forbidden', 'text/plain');
+        const id = Number(form.get('id')) || null;
+        const old = id ? db.prepare('SELECT * FROM reviews WHERE id=?').get(id) : null;
+        if (id && !old) return send(res, 404, 'Not found', 'text/plain');
+        const item = { id, title: String(form.get('title') || '').trim(), body: String(form.get('body') || '').trim(), image_alt: String(form.get('image_alt') || '').trim(), sort_order: Number(form.get('sort_order')), published: form.get('published') === '1' ? 1 : 0, image_path: old?.image_path || '' };
+        const file = form.get('image');
+        const hasFile = file && typeof file.arrayBuffer === 'function' && file.size > 0;
+        const error = !item.title || item.title.length > 80 || !item.body || item.body.length > 400 || item.image_alt.length > 160 || !Number.isInteger(item.sort_order) || item.sort_order < 0 || item.sort_order > 999 || (!old && !hasFile) ? '제목, 내용, 사진과 표시 순서를 확인해 주세요.' : '';
+        if (error) return send(res, 400, reviewForm(item, session, error));
+        let filename = '';
+        if (hasFile) {
+          const image = Buffer.from(await file.arrayBuffer());
+          const ext = imageType(image);
+          if (!ext || image.length > 8 * 1024 * 1024 || image.length < 32) return send(res, 400, reviewForm(item, session, 'JPG, PNG, WebP 사진을 8MB 이하로 올려 주세요.'));
+          filename = `${crypto.randomBytes(16).toString('hex')}.${ext}`;
+          fs.writeFileSync(path.join(UPLOAD_DIR, filename), image, { flag: 'wx' });
+          item.image_path = `/uploads/${filename}`;
+        }
+        try {
+          if (id) db.prepare('UPDATE reviews SET title=?,body=?,image_path=?,image_alt=?,sort_order=?,published=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').run(item.title,item.body,item.image_path,item.image_alt,item.sort_order,item.published,id);
+          else item.id = Number(db.prepare('INSERT INTO reviews(title,body,image_path,image_alt,sort_order,published) VALUES(?,?,?,?,?,?)').run(item.title,item.body,item.image_path,item.image_alt,item.sort_order,item.published).lastInsertRowid);
+        } catch (error) { if (filename) fs.rmSync(path.join(UPLOAD_DIR, filename), { force: true }); throw error; }
+        if (filename && old?.image_path?.startsWith('/uploads/')) fs.rmSync(path.join(UPLOAD_DIR, path.basename(old.image_path)), { force: true });
+        return redirect(res, '/admin/reviews');
+      } catch (error) { return send(res, 400, e(error.message || '후기 저장에 실패했습니다.'), 'text/plain; charset=utf-8'); }
+    }
     if (req.method === 'POST' && /^\/admin\/lectures\/\d+\/images$/.test(pathname)) {
       if (!verifyOrigin(req)) return send(res, 403, 'Forbidden', 'text/plain');
       const lectureId = Number(pathname.split('/')[3]);
@@ -291,9 +353,13 @@ async function route(req, res) {
         return redirect(res, '/admin');
       }
       if (pathname === '/admin/instructors/delete') { db.prepare('DELETE FROM instructors WHERE id=?').run(Number(body.id) || 0); return redirect(res, '/admin'); }
+      if (pathname === '/admin/reviews/delete') { const item = db.prepare('SELECT * FROM reviews WHERE id=?').get(Number(body.id) || 0); if (!item) return send(res, 404, 'Not found', 'text/plain'); db.prepare('DELETE FROM reviews WHERE id=?').run(item.id); if (item.image_path.startsWith('/uploads/')) fs.rmSync(path.join(UPLOAD_DIR, path.basename(item.image_path)), { force: true }); return redirect(res, '/admin/reviews'); }
       return send(res, 404, 'Not found', 'text/plain');
     }
     if (req.method === 'GET' && pathname === '/admin') return send(res, 200, renderDashboard(session));
+    if (req.method === 'GET' && pathname === '/admin/reviews') return send(res, 200, renderReviews(session));
+    if (req.method === 'GET' && pathname === '/admin/reviews/new') return send(res, 200, reviewForm({ published: 1, sort_order: 0 }, session));
+    if (req.method === 'GET' && /^\/admin\/reviews\/\d+$/.test(pathname)) { const item = db.prepare('SELECT * FROM reviews WHERE id=?').get(Number(pathname.split('/').pop())); return item ? send(res, 200, reviewForm(item, session)) : send(res, 404, 'Not found', 'text/plain'); }
     if (req.method === 'GET' && pathname === '/admin/lectures/new') return send(res, 200, lectureForm({}, session));
     if (req.method === 'GET' && /^\/admin\/lectures\/\d+$/.test(pathname)) { const item = db.prepare('SELECT * FROM lectures WHERE id=?').get(Number(pathname.split('/').pop())); return item ? send(res, 200, lectureForm(item, session)) : send(res, 404, 'Not found', 'text/plain'); }
     if (req.method === 'GET' && pathname === '/admin/instructors/new') return send(res, 200, instructorForm({}, session));
