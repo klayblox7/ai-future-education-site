@@ -4,7 +4,7 @@
 
 ## 동료에게 보여주는 홈페이지
 
-[GitHub Pages 미리보기](https://klayblox7.github.io/ai-future-education-site/)는 설치 없이 바로 열 수 있습니다. 이 공유용 버전에는 관리자 로그인과 문의 접수를 표시하지 않습니다. 강의 등록·수정과 문의 저장은 아래 방법으로 실행하는 Node.js 사이트에서 사용할 수 있습니다.
+[GitHub Pages 미리보기](https://klayblox7.github.io/ai-future-education-site/)는 설치 없이 바로 열 수 있습니다. 이 공유용 버전에는 관리자 로그인과 문의 접수를 표시하지 않습니다. 강의 상세의 신청 버튼은 시각 미리보기이며, GitHub Pages는 정적 사이트라 신청 정보를 저장하지 않습니다. 실제 신청 접수, 관리자 신청 목록, 강의 관리 기능은 아래 방법으로 실행하는 Node.js 사이트에서 사용할 수 있습니다.
 
 ## 실행
 

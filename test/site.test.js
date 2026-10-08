@@ -18,6 +18,7 @@ test('published lecture seed imports into a fresh data directory', () => {
     const seeded = new DatabaseSync(path.join(dir, 'site.sqlite'), { readOnly: true });
     assert.equal(seeded.prepare('SELECT COUNT(*) AS n FROM lectures WHERE published=1').get().n, 2);
     assert.equal(seeded.prepare('SELECT COUNT(*) AS n FROM lecture_images').get().n, 4);
+    assert.equal(seeded.prepare("SELECT COUNT(*) AS n FROM lecture_images WHERE placement='landing'").get().n, 2);
     assert.equal(seeded.prepare('SELECT COUNT(*) AS n FROM inquiries').get().n, 0);
     seeded.close();
   } finally {
@@ -41,6 +42,12 @@ test('admin can publish and update a lecture, and inquiries are stored', async (
     assert.match(emptyHtml, /ChatGPT·Gemini·Claude/);
     assert.doesNotMatch(emptyHtml, /2026\.11 첫 강의 시작/);
     assert.match(emptyHtml, /aria-controls="main-nav"/);
+    assert.match(emptyHtml, /무료로 수강할 수 있나요/);
+    assert.match(emptyHtml, /보람상조/);
+    assert.match(emptyHtml, /40분에서 70분/);
+    assert.match(emptyHtml, /실무 중심의 맞춤형 교육을 제공합니다/);
+    assert.match(emptyHtml, /맞춤형 커리큘럼/);
+    assert.match(emptyHtml, /실습 중심 교육/);
 
     const login = await fetch(`${base}/admin/login`, { method: 'POST', redirect: 'manual', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: base }, body: new URLSearchParams({ password: process.env.ADMIN_PASSWORD }) });
     assert.equal(login.status, 303);
@@ -67,8 +74,9 @@ test('admin can publish and update a lecture, and inquiries are stored', async (
     const detail = await fetch(`${base}/lectures/${item.id}`);
     assert.equal(detail.status, 200);
     const detailHtml = await detail.text();
-    assert.match(detailHtml, /https:\/\/example.com\/lecture/);
-    assert.match(detailHtml, /두 번째 &lt;안전한&gt; 문단/);
+    assert.match(detailHtml, /상세 안내 이미지를 준비하고 있습니다/);
+    assert.doesNotMatch(detailHtml, /lecture-page-cover|lecture-page-aside|강의 소개/);
+    assert.doesNotMatch(detailHtml, /https:\/\/example.com\/lecture|두 번째 &lt;안전한&gt; 문단/);
 
     const imageForm = new FormData();
     imageForm.set('csrf', csrf);
@@ -80,7 +88,8 @@ test('admin can publish and update a lecture, and inquiries are stored', async (
     assert.ok(image);
     assert.equal((await fetch(`${base}/uploads/${image.filename}`)).status, 200);
     assert.match(await (await fetch(base)).text(), new RegExp(image.filename.replace('.', '\\.')));
-    assert.match(await (await fetch(`${base}/lectures/${item.id}`)).text(), /수업 현장/);
+    assert.match(await (await fetch(base)).text(), /class="lecture-mobile-thumb"/);
+    assert.doesNotMatch(await (await fetch(`${base}/lectures/${item.id}`)).text(), /수업 현장/);
     const removeImage = await fetch(`${base}/admin/lectures/images/delete`, { method: 'POST', redirect: 'manual', headers: { Cookie: cookie, Origin: base, 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ csrf, id: String(image.id) }) });
     assert.equal(removeImage.status, 303);
     assert.equal((await fetch(`${base}/uploads/${image.filename}`)).status, 404);
@@ -90,8 +99,9 @@ test('admin can publish and update a lecture, and inquiries are stored', async (
     const landingImage = db.prepare("SELECT * FROM lecture_images WHERE lecture_id=? AND placement='landing'").get(item.id);
     assert.ok(landingImage);
     const landingPage = await (await fetch(`${base}/lectures/${item.id}`)).text();
-    assert.match(landingPage, /class="lecture-landing-image"/);
+    assert.match(landingPage, /class="lecture-landing-only"/);
     assert.match(landingPage, new RegExp(landingImage.filename.replace('.', '\\.')));
+    assert.doesNotMatch(landingPage, /lecture-page-cover|lecture-page-aside|강의 소개|두 번째 &lt;안전한&gt; 문단/);
     const replaceLanding = await fetch(`${base}/admin/lectures/${item.id}/images`, { method: 'POST', redirect: 'manual', headers: { Cookie: cookie, Origin: base }, body: imageForm });
     assert.equal(replaceLanding.status, 303);
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM lecture_images WHERE lecture_id=? AND placement='landing'").get(item.id).count, 1);

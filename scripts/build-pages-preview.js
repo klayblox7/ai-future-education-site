@@ -38,7 +38,7 @@ try {
   writePage('', renderHome());
   writePage('privacy', renderPrivacy());
   for (const lecture of db.prepare('SELECT * FROM lectures WHERE published=1 ORDER BY id').all()) {
-    writePage(path.join('lectures', String(lecture.id)), renderLecture(lecture));
+    writePage(path.join('lectures', String(lecture.id)), renderLecture(lecture, false, true));
   }
   for (const stylesheet of ['style.css', 'site.css']) {
     const file = path.join(output, stylesheet);

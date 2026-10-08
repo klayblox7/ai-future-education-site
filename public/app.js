@@ -48,6 +48,44 @@ if (lectureGrid) {
   updateFilters();
 }
 
+const registrationLayer = document.getElementById('register');
+const registrationOpenButton = document.querySelector('.registration-dock-button');
+if (registrationLayer && registrationOpenButton) {
+  const registrationSheet = registrationLayer.querySelector('.registration-sheet');
+  const closeButtons = registrationLayer.querySelectorAll('[data-registration-close]');
+  let previousFocus = null;
+  const openRegistration = () => {
+    previousFocus = document.activeElement;
+    registrationLayer.classList.add('is-open');
+    registrationLayer.setAttribute('aria-hidden', 'false');
+    registrationOpenButton.setAttribute('aria-expanded', 'true');
+    document.body.classList.add('registration-open');
+    window.setTimeout(() => registrationSheet.querySelector('input:not([type="hidden"])')?.focus(), 160);
+  };
+  const closeRegistration = () => {
+    registrationLayer.classList.remove('is-open');
+    registrationLayer.setAttribute('aria-hidden', 'true');
+    registrationOpenButton.setAttribute('aria-expanded', 'false');
+    document.body.classList.remove('registration-open');
+    if (window.location.hash === '#register') window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    (previousFocus instanceof HTMLElement ? previousFocus : registrationOpenButton).focus();
+  };
+  registrationOpenButton.addEventListener('click', openRegistration);
+  closeButtons.forEach(button => button.addEventListener('click', closeRegistration));
+  document.addEventListener('keydown', event => {
+    if (!registrationLayer.classList.contains('is-open')) return;
+    if (event.key === 'Escape') { event.preventDefault(); closeRegistration(); return; }
+    if (event.key !== 'Tab') return;
+    const focusable = [...registrationSheet.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),a[href]')].filter(element => element.offsetParent !== null);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  });
+  if (window.location.hash === '#register' || new URLSearchParams(window.location.search).has('registered')) openRegistration();
+}
+
 document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventListener('submit', event => {
   if (!window.confirm(form.dataset.confirm)) event.preventDefault();
 }));
