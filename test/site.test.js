@@ -3,6 +3,27 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const { DatabaseSync } = require('node:sqlite');
+
+test('published lecture seed imports into a fresh data directory', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-future-seed-'));
+  try {
+    const result = spawnSync(process.execPath, [path.join(__dirname, '..', 'scripts', 'import-public-seed.js')], {
+      cwd: path.join(__dirname, '..'),
+      env: { ...process.env, DATA_DIR: dir },
+      encoding: 'utf8'
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const seeded = new DatabaseSync(path.join(dir, 'site.sqlite'), { readOnly: true });
+    assert.equal(seeded.prepare('SELECT COUNT(*) AS n FROM lectures WHERE published=1').get().n, 2);
+    assert.equal(seeded.prepare('SELECT COUNT(*) AS n FROM lecture_images').get().n, 4);
+    assert.equal(seeded.prepare('SELECT COUNT(*) AS n FROM inquiries').get().n, 0);
+    seeded.close();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('admin can publish and update a lecture, and inquiries are stored', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-future-site-'));

@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: ai-future-education
+    runtime: docker
+    plan: 0.5c-512mb
+    healthCheckPath: /
+    envVars:
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: DATA_DIR
+        value: /app/data
+    disk:
+      name: ai-future-data
+      mountPath: /app/data
+      sizeGB: 5
