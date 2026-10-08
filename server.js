@@ -269,6 +269,6 @@ async function route(req, res) {
 
 const server = http.createServer((req, res) => route(req, res).catch(error => { console.error(error); if (!res.headersSent) send(res, 500, '서버 오류가 발생했습니다.', 'text/plain; charset=utf-8'); }));
 if (require.main === module) server.listen(PORT, () => console.log(`AI 미래교육원: http://localhost:${PORT}`));
-module.exports = { server, db, renderHome, safeUrl };
+module.exports = { server, db, renderHome, renderLecture, renderPrivacy, safeUrl };
 
 
