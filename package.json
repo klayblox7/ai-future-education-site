@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env.local scripts/start.js",
     "dev": "node --env-file-if-exists=.env.local --watch server.js",
-    "test": "node --test",
+    "test": "node --test test/site.test.js",
+    "backup": "node --env-file-if-exists=.env.local scripts/backup-data.js",
     "seed:export": "node scripts/export-public-seed.js",
     "seed:import": "node scripts/import-public-seed.js",
     "pages:build": "node scripts/build-pages-preview.js"

@@ -50,6 +50,24 @@ if (lectureGrid) {
 
 const registrationLayer = document.getElementById('register');
 const registrationOpenButton = document.querySelector('.registration-dock-button');
+const utmKeys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+const query = new URLSearchParams(window.location.search);
+if (query.has('registered')) {
+  const confirmation = document.querySelector('.registration-success');
+  if (confirmation) confirmation.hidden = false;
+}
+utmKeys.forEach(key => {
+  const fromUrl = query.get(key);
+  if (fromUrl !== null) {
+    try { window.sessionStorage.setItem(key, fromUrl.slice(0, 120)); } catch { /* Storage may be disabled. */ }
+  }
+  const field = document.querySelector(`.registration-form input[name="${key}"]`);
+  if (field) {
+    let value = fromUrl;
+    if (value === null) { try { value = window.sessionStorage.getItem(key); } catch { value = ''; } }
+    field.value = String(value || '').slice(0, 120);
+  }
+});
 if (registrationLayer && registrationOpenButton) {
   const registrationSheet = registrationLayer.querySelector('.registration-sheet');
   const closeButtons = registrationLayer.querySelectorAll('[data-registration-close]');

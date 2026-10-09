@@ -2,6 +2,9 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { isIP } = require('node:net');
+const { createRegistrationAdmin } = require('./scripts/registration-admin');
+const { backupData } = require('./scripts/backup-data');
 const { DatabaseSync } = require('node:sqlite');
 
 const PORT = Number(process.env.PORT || 3000);
@@ -68,8 +71,26 @@ if (!db.prepare('PRAGMA table_info(lectures)').all().some(column => column.name 
 if (!db.prepare('PRAGMA table_info(lecture_images)').all().some(column => column.name === 'placement')) {
   db.exec("ALTER TABLE lecture_images ADD COLUMN placement TEXT NOT NULL DEFAULT 'gallery'");
 }
-db.exec("DELETE FROM inquiries WHERE created_at < datetime('now', '-1 year')");
-db.exec("DELETE FROM registrations WHERE created_at < datetime('now', '-1 year')");
+for (const column of ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term']) {
+  if (!db.prepare('PRAGMA table_info(registrations)').all().some(item => item.name === column)) db.exec(`ALTER TABLE registrations ADD COLUMN ${column} TEXT NOT NULL DEFAULT ''`);
+}
+for (const [column, definition] of Object.entries({ status: "TEXT NOT NULL DEFAULT '접수'", notes: "TEXT NOT NULL DEFAULT ''", consent_at: "TEXT NOT NULL DEFAULT ''", consent_version: "TEXT NOT NULL DEFAULT ''" })) {
+  if (!db.prepare('PRAGMA table_info(registrations)').all().some(item => item.name === column)) db.exec(`ALTER TABLE registrations ADD COLUMN ${column} ${definition}`);
+}
+const CONSENT_VERSION = '2026-10-09-v1';
+// Only enable this behind a trusted ingress that appends the visitor IP.
+const clientIp = req => {
+  const hops = Number(process.env.TRUST_PROXY_HOPS || 0);
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',').map(x => x.trim());
+  const candidate = hops > 0 ? forwarded[forwarded.length - hops] : '';
+  return isIP(candidate || '') ? candidate : req.socket.remoteAddress || 'unknown';
+};
+const purgeExpiredPersonalData = () => {
+  db.exec("DELETE FROM inquiries WHERE created_at < datetime('now', '-1 year')");
+  db.exec("DELETE FROM registrations WHERE created_at < datetime('now', '-1 year')");
+};
+purgeExpiredPersonalData();
+setInterval(purgeExpiredPersonalData, 24 * 60 * 60 * 1000).unref();
 
 const sessions = new Map();
 const loginAttempts = new Map();
@@ -98,6 +119,11 @@ const newSession = () => { const token = crypto.randomBytes(32).toString('hex');
 const secureCookie = req => req.socket.encrypted || PUBLIC_ORIGIN.startsWith('https://') ? '; Secure' : '';
 const verifyOrigin = req => { const origin = req.headers.origin; if (!origin) return true; const expected = PUBLIC_ORIGIN || `http://${req.headers.host}`; return origin === expected; };
 const csrfField = session => `<input type="hidden" name="csrf" value="${e(session.csrf)}">`;
+const csvCell = value => {
+  const text = String(value ?? '');
+  const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+  return `"${safe.replace(/"/g, '""')}"`;
+};
 const adminShell = (title, content) => html(title, `<header class="admin-header"><a href="/admin" class="admin-logo">AI 미래교육원 <span>관리자</span></a><nav><a href="/admin">대시보드</a><a href="/admin/lectures/new">강의 추가</a><a href="/admin/reviews">후기 관리</a><a href="/admin/instructors/new">강사 추가</a><a href="/admin/registrations">강의 신청</a><a href="/admin/inquiries">문의함</a><a href="/" target="_blank" rel="noopener">사이트 보기 ↗</a><form action="/admin/logout" method="post"><button>로그아웃</button></form></nav></header><main class="admin-main"><div class="admin-heading"><p class="eyebrow">OPERATIONS</p><h1>${e(title)}</h1></div>${content}</main>`, { admin: true });
 
 function lectureCard(item) {
@@ -137,7 +163,7 @@ function renderLecture(item, registered = false, staticPreview = false) {
     : `<div class="lecture-image-pending"><h1>${e(item.title)}</h1><p>상세 안내 이미지를 준비하고 있습니다.</p></div>`;
   const ageOptions = ['21~25세','26~30세','31~35세','36~40세','41~45세','46~50세','51~55세','56~60세','61~65세','66~70세'];
   const sourceOptions = ['인스타그램','페이스북','당근','카카오','유튜브','네이버','기타'];
-  const registrationContent = `<section class="registration-section"><div class="registration-card"><div class="registration-heading"><p class="eyebrow">FREE REGISTRATION</p><h2 id="registration-title">선착순 무료 신청</h2><p>${e(item.title)} 신청 정보를 입력해 주세요.</p>${registered ? '<p class="registration-success" role="status">신청이 접수되었습니다. 확인 후 안내해 드리겠습니다.</p>' : ''}</div><form action="/registrations" method="post" class="registration-form"><input type="hidden" name="lecture_id" value="${item.id}"><label>이름<input name="name" maxlength="50" autocomplete="name" required></label><fieldset class="registration-field"><legend>연락처</legend><div class="phone-fields"><select name="phone_prefix" aria-label="휴대전화 앞자리"><option>010</option><option>011</option><option>016</option><option>017</option><option>018</option><option>019</option></select><input name="phone_middle" inputmode="numeric" autocomplete="tel-national" pattern="[0-9]{3,4}" maxlength="4" placeholder="앞자리" aria-label="휴대전화 가운데 자리" required><input name="phone_last" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="뒷자리" aria-label="휴대전화 뒷자리" required></div></fieldset><label>성별<select name="gender" required><option value="">선택해 주세요</option><option>여자</option><option>남자</option><option>응답하지 않음</option></select></label><label>연령<select name="age_range" required><option value="">선택해 주세요</option>${ageOptions.map(x => `<option>${x}</option>`).join('')}</select></label><label>공연 시간대를 선택해 주세요 <small>(중복 신청 불가)</small><select name="session_preference" required><option value="">선택해 주세요</option><option>오전 시간대</option><option>오후 시간대</option><option>시간대 무관</option></select></label><fieldset class="registration-field"><legend>유입 경로</legend><div class="source-options">${sourceOptions.map((x,i) => `<label><input type="radio" name="referral_source" value="${x}" ${i===0?'required':''}><span>${x}</span></label>`).join('')}</div></fieldset><label class="registration-consent"><input type="checkbox" name="consent" value="yes" required><span><a href="/privacy" target="_blank" rel="noopener">개인정보 수집 및 이용</a>과 행사장 안전사고 배상책임 안내를 확인하고 동의합니다.</span></label><input class="honeypot" name="website" tabindex="-1" autocomplete="off" aria-hidden="true"><button class="registration-submit" type="submit">무료 초대권 신청하기</button><p class="registration-note">신청 정보는 강의 운영 및 안내 목적으로만 사용됩니다.</p></form></div></section>`;
+  const registrationContent = `<section class="registration-section"><div class="registration-card"><div class="registration-heading"><p class="eyebrow">FREE REGISTRATION</p><h2 id="registration-title">선착순 무료 신청</h2><p>${e(item.title)}에 참여하려면 아래 정보를 입력해 주세요.</p><p class="registration-success" role="status" ${registered ? '' : 'hidden'}>신청이 접수되었습니다. 확인 후 안내해 드리겠습니다.</p></div><form action="/registrations" method="post" class="registration-form"><input type="hidden" name="lecture_id" value="${item.id}">${['utm_source','utm_medium','utm_campaign','utm_content','utm_term'].map(name => `<input type="hidden" name="${name}" value="">`).join('')}<label>이름<input name="name" maxlength="50" autocomplete="name" required></label><fieldset class="registration-field"><legend>연락처</legend><div class="phone-fields"><select name="phone_prefix" aria-label="휴대전화 앞자리"><option>010</option><option>011</option><option>016</option><option>017</option><option>018</option><option>019</option></select><input name="phone_middle" inputmode="numeric" autocomplete="tel-national" pattern="[0-9]{3,4}" maxlength="4" placeholder="앞자리" aria-label="휴대전화 가운데 자리" required><input name="phone_last" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="뒷자리" aria-label="휴대전화 뒷자리" required></div></fieldset><label>성별<select name="gender" required><option value="">선택해 주세요</option><option>여자</option><option>남자</option><option>응답하지 않음</option></select></label><label>연령<select name="age_range" required><option value="">선택해 주세요</option>${ageOptions.map(x => `<option>${x}</option>`).join('')}</select></label><label>강의 시간대를 선택해 주세요 <small>(중복 신청 불가)</small><select name="session_preference" required><option value="">선택해 주세요</option><option>오전 시간대</option><option>오후 시간대</option><option>시간대 무관</option></select></label><fieldset class="registration-field"><legend>유입 경로</legend><div class="source-options">${sourceOptions.map((x,i) => `<label><input type="radio" name="referral_source" value="${x}" ${i===0?'required':''}><span>${x}</span></label>`).join('')}</div></fieldset><label class="registration-consent"><input type="checkbox" name="consent" value="yes" required><span><a href="/privacy" target="_blank" rel="noopener">개인정보 수집 및 이용</a>에 동의합니다.</span></label><input class="honeypot" name="website" tabindex="-1" autocomplete="off" aria-hidden="true"><button class="registration-submit" type="submit">무료 초대권 신청하기</button><p class="registration-note">신청 정보는 강의 운영 및 안내 목적으로만 사용됩니다.</p></form></div></section>`;
   const registration = staticPreview
     ? `<div class="registration-layer" id="register" aria-hidden="true"><div class="registration-backdrop" data-registration-close></div><section class="registration-sheet" role="dialog" aria-modal="true" aria-labelledby="registration-preview-title" tabindex="-1"><div class="registration-sheet-handle"><span></span><button class="registration-close" type="button" data-registration-close aria-label="안내 닫기">×</button></div><div class="registration-preview-message"><h2 id="registration-preview-title">신청 미리보기</h2><p>이 링크는 GitHub Pages 공유용 미리보기라 신청 정보가 저장되지 않습니다.</p><p>실제 신청 접수는 서버가 연결된 운영 사이트에서 이용할 수 있습니다.</p></div></section></div><div class="registration-dock"><button class="registration-dock-button" type="button" aria-controls="register" aria-expanded="false">선착순 무료신청</button></div>`
     : `<div class="registration-layer" id="register" aria-hidden="true"><div class="registration-backdrop" data-registration-close></div><section class="registration-sheet" role="dialog" aria-modal="true" aria-labelledby="registration-title" tabindex="-1"><div class="registration-sheet-handle"><span></span><button class="registration-close" type="button" data-registration-close aria-label="신청서 닫기">×</button></div>${registrationContent}</section></div><div class="registration-dock"><button class="registration-dock-button" type="button" aria-controls="register" aria-expanded="false">선착순 무료신청</button></div>`;
@@ -204,12 +230,17 @@ function reviewForm(item, session, error = '') {
 
 function renderInquiries() { const items = db.prepare('SELECT * FROM inquiries ORDER BY id DESC').all(); return adminShell('문의함', `<div class="inquiry-list">${items.length ? items.map(x => `<article class="inquiry-item"><div><span class="tag">${e(x.kind)}</span><time>${e(x.created_at)}</time></div><h2>${e(x.name)} <small>${e(x.contact)}</small></h2><p>${e(x.message).replace(/\n/g, '<br>')}</p></article>`).join('') : '<div class="admin-card">아직 접수된 문의가 없습니다.</div>'}</div>`); }
 
-function renderRegistrations() { const items = db.prepare('SELECT registrations.*, lectures.title AS lecture_title FROM registrations LEFT JOIN lectures ON lectures.id=registrations.lecture_id ORDER BY registrations.id DESC').all(); return adminShell('강의 신청', `<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>접수일</th><th>강의</th><th>신청자</th><th>연락처</th><th>성별·연령</th><th>시간대</th><th>유입 경로</th></tr></thead><tbody>${items.length ? items.map(x => { const phone = x.contact.replace(/^(01\d)(\d{3,4})(\d{4})$/, '$1-$2-$3'); return `<tr><td>${e(x.created_at)}</td><td>${e(x.lecture_title || '삭제된 강의')}</td><td><strong>${e(x.name)}</strong></td><td><a href="tel:${e(x.contact)}">${e(phone)}</a></td><td>${e(x.gender)} · ${e(x.age_range)}</td><td>${e(x.session_preference)}</td><td>${e(x.referral_source)}</td></tr>`; }).join('') : '<tr><td colspan="7" class="table-empty">아직 접수된 강의 신청이 없습니다.</td></tr>'}</tbody></table></div>`); }
+function renderRegistrations() { const items = db.prepare('SELECT registrations.*, lectures.title AS lecture_title FROM registrations LEFT JOIN lectures ON lectures.id=registrations.lecture_id ORDER BY registrations.id DESC').all(); return adminShell('강의 신청', `<div class="admin-section-title"><p>접수된 신청 ${items.length}건</p><a class="admin-primary" href="/admin/registrations.csv">CSV 내려받기</a></div><div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>접수일</th><th>강의</th><th>신청자</th><th>연락처</th><th>성별·연령</th><th>시간대</th><th>유입 경로</th><th>광고 캠페인</th></tr></thead><tbody>${items.length ? items.map(x => { const phone = x.contact.replace(/^(01\d)(\d{3,4})(\d{4})$/, '$1-$2-$3'); return `<tr><td>${e(x.created_at)}</td><td>${e(x.lecture_title || '삭제된 강의')}</td><td><strong>${e(x.name)}</strong></td><td><a href="tel:${e(x.contact)}">${e(phone)}</a></td><td>${e(x.gender)} · ${e(x.age_range)}</td><td>${e(x.session_preference)}</td><td>${e(x.referral_source)}</td><td>${e([x.utm_source,x.utm_medium,x.utm_campaign].filter(Boolean).join(' / ') || '-')}</td></tr>`; }).join('') : '<tr><td colspan="8" class="table-empty">아직 접수된 강의 신청이 없습니다.</td></tr>'}</tbody></table></div>`); }
 
 function limit(map, key, count, duration) { const now = Date.now(); const current = (map.get(key) || []).filter(t => now - t < duration); current.push(now); map.set(key, current); return current.length <= count; }
 
 async function route(req, res) {
   const pathname = new URL(req.url, `http://${req.headers.host || 'localhost'}`).pathname;
+  if (pathname.startsWith('/admin')) res.setHeader('Cache-Control', 'no-store');
+  if (req.method === 'GET' && pathname === '/healthz') {
+    db.prepare('SELECT 1').get();
+    return send(res, 200, JSON.stringify({ status: 'ok' }), 'application/json', { 'Cache-Control': 'no-store' });
+  }
   if (req.method === 'GET' && (pathname === '/style.css' || pathname === '/site.css' || pathname === '/app.js' || /^\/assets\/[a-z0-9-]+\.(png|jpg|webp)$/i.test(pathname))) {
     const file = path.join(__dirname, 'public', pathname.slice(1));
     if (!fs.existsSync(file)) return send(res, 404, 'Not found', 'text/plain');
@@ -227,7 +258,7 @@ async function route(req, res) {
     if (!verifyOrigin(req)) return send(res, 403, 'Forbidden', 'text/plain');
     const body = await readBody(req);
     if (body.website) return redirect(res, '/?sent=1#contact');
-    const ip = req.socket.remoteAddress || 'unknown';
+    const ip = clientIp(req);
     if (!limit(inquiryAttempts, ip, 5, 60 * 60 * 1000)) return send(res, 429, html('잠시 후 다시 시도해 주세요', '<main class="legal-page container"><h1>문의가 너무 자주 접수되었습니다.</h1><p>잠시 후 다시 시도하거나 1877-6201로 연락해 주세요.</p></main>'));
     if (!body.consent || !body.name?.trim() || !body.contact?.trim() || !body.kind?.trim() || !body.message?.trim() || body.name.length > 50 || body.contact.length > 100 || body.message.length > 2000) return send(res, 400, html('입력 확인', '<main class="legal-page container"><h1>입력 내용을 확인해 주세요.</h1><p>모든 필수 항목과 개인정보 동의가 필요합니다.</p><a href="/#contact">문의로 돌아가기</a></main>'));
     db.exec("DELETE FROM inquiries WHERE created_at < datetime('now', '-1 year')");
@@ -240,22 +271,25 @@ async function route(req, res) {
     const lectureId = Number(body.lecture_id) || 0;
     const lecture = db.prepare('SELECT id FROM lectures WHERE id=? AND published=1').get(lectureId);
     if (body.website) return redirect(res, `/lectures/${lectureId}#register`);
-    const ip = req.socket.remoteAddress || 'unknown';
-    if (!limit(inquiryAttempts, `registration:${ip}`, 5, 60 * 60 * 1000)) return send(res, 429, html('잠시 후 다시 시도해 주세요', '<main class="legal-page container"><h1>신청이 너무 자주 접수되었습니다.</h1><p>잠시 후 다시 신청해 주세요.</p></main>'));
+    const ip = clientIp(req);
+    if (!limit(inquiryAttempts, `registration:${ip}`, 30, 60 * 60 * 1000)) return send(res, 429, html('잠시 후 다시 시도해 주세요', '<main class="legal-page container"><h1>신청이 너무 자주 접수되었습니다.</h1><p>잠시 후 다시 신청해 주세요.</p></main>'));
     const name = (body.name || '').trim();
     const phoneDigits = [body.phone_prefix, body.phone_middle, body.phone_last].join('').replace(/\D/g, '');
     const genderOptions = ['여자','남자','응답하지 않음'];
     const ageOptions = ['21~25세','26~30세','31~35세','36~40세','41~45세','46~50세','51~55세','56~60세','61~65세','66~70세'];
     const sessionOptions = ['오전 시간대','오후 시간대','시간대 무관'];
     const sourceOptions = ['인스타그램','페이스북','당근','카카오','유튜브','네이버','기타'];
-    if (!lecture || !body.consent || !name || name.length > 50 || !/^01[016789]\d{7,8}$/.test(phoneDigits) || !genderOptions.includes(body.gender) || !ageOptions.includes(body.age_range) || !sessionOptions.includes(body.session_preference) || !sourceOptions.includes(body.referral_source)) return send(res, 400, html('입력 확인', '<main class="legal-page container"><h1>신청 내용을 확인해 주세요.</h1><p>필수 항목을 모두 입력하고 개인정보 수집·이용에 동의해 주세요.</p><a href="/lectures/' + lectureId + '#register">신청서로 돌아가기</a></main>'));
-    db.prepare('INSERT INTO registrations(lecture_id,name,contact,gender,age_range,session_preference,referral_source) VALUES(?,?,?,?,?,?,?)').run(lectureId, name, phoneDigits, body.gender, body.age_range, body.session_preference, body.referral_source);
+    if (!lecture || body.consent !== 'yes' || !name || name.length > 50 || !/^01[016789]\d{7,8}$/.test(phoneDigits) || !genderOptions.includes(body.gender) || !ageOptions.includes(body.age_range) || !sessionOptions.includes(body.session_preference) || !sourceOptions.includes(body.referral_source)) return send(res, 400, html('입력 확인', '<main class="legal-page container"><h1>신청 내용을 확인해 주세요.</h1><p>필수 항목을 모두 입력하고 개인정보 수집·이용에 동의해 주세요.</p><a href="/lectures/' + lectureId + '#register">신청서로 돌아가기</a></main>'));
+    if (db.prepare('SELECT id FROM registrations WHERE lecture_id=? AND contact=?').get(lectureId, phoneDigits)) return send(res, 409, html('이미 신청했습니다', `<main class="legal-page container"><h1>이미 신청된 연락처입니다.</h1><p>신청 내용을 변경하려면 대표번호로 문의해 주세요.</p><a href="/lectures/${lectureId}">강의로 돌아가기</a></main>`));
+    const utm = ['utm_source','utm_medium','utm_campaign','utm_content','utm_term'].map(key => String(body[key] || '').trim().slice(0, 120));
+    db.prepare('INSERT INTO registrations(lecture_id,name,contact,gender,age_range,session_preference,referral_source,utm_source,utm_medium,utm_campaign,utm_content,utm_term) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(lectureId, name, phoneDigits, body.gender, body.age_range, body.session_preference, body.referral_source, ...utm);
+    db.prepare('UPDATE registrations SET consent_at=CURRENT_TIMESTAMP,consent_version=? WHERE id=last_insert_rowid()').run(CONSENT_VERSION);
     return redirect(res, `/lectures/${lectureId}?registered=1#register`);
   }
   if (pathname === '/admin/login' && req.method === 'GET') return send(res, 200, html('관리자 로그인', `<main class="login-page"><div class="login-card"><a href="/" class="admin-login-brand">AI 미래교육원</a><p class="eyebrow dark">ADMIN ACCESS</p><h1>관리자 로그인</h1><p>강의 일정과 강사진을 관리합니다.</p>${new URL(req.url, 'http://local').searchParams.has('error') ? '<div class="admin-error">비밀번호를 확인해 주세요.</div>' : ''}<form action="/admin/login" method="post"><label>관리자 비밀번호<input type="password" name="password" required autocomplete="current-password"></label><button class="admin-primary">로그인</button></form><a class="back-home" href="/">← 홈페이지로 돌아가기</a></div></main>`, { admin: true }));
   if (pathname === '/admin/login' && req.method === 'POST') {
     if (!verifyOrigin(req)) return send(res, 403, 'Forbidden', 'text/plain');
-    const ip = req.socket.remoteAddress || 'unknown';
+    const ip = clientIp(req);
     if (!limit(loginAttempts, ip, 10, 15 * 60 * 1000)) return send(res, 429, 'Too many attempts', 'text/plain');
     const body = await readBody(req);
     const configured = process.env.ADMIN_PASSWORD;
@@ -333,6 +367,28 @@ async function route(req, res) {
       if (!verifyOrigin(req)) return send(res, 403, 'Forbidden', 'text/plain');
       const body = await readBody(req);
       if (pathname !== '/admin/logout' && body.csrf !== session.csrf) return send(res, 403, 'Forbidden', 'text/plain');
+      if (pathname === '/admin/backup') {
+        const temp = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'ai-future-download-'));
+        try {
+          const archive = backupData(DATA_DIR, temp, db);
+          res.writeHead(200, { 'Content-Type': 'application/gzip', 'Content-Disposition': 'attachment; filename="site-backup.tar.gz"', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+          const stream = fs.createReadStream(archive);
+          const cleanup = () => fs.rmSync(temp, { recursive: true, force: true });
+          stream.on('close', cleanup);
+          stream.on('error', () => res.destroy());
+          res.on('close', () => stream.destroy());
+          return stream.pipe(res);
+        } catch (error) { fs.rmSync(temp, { recursive: true, force: true }); throw error; }
+      }
+      if (pathname === '/admin/registrations/update') {
+        if (!registrationAdmin.statuses.includes(body.status) || String(body.notes || '').length > 1000) return send(res, 400, '신청 상태와 메모를 확인해 주세요.', 'text/plain; charset=utf-8');
+        const result = db.prepare('UPDATE registrations SET status=?,notes=? WHERE id=?').run(body.status, String(body.notes || '').trim(), Number(body.id) || 0);
+        return result.changes ? redirect(res, '/admin/registrations') : send(res, 404, 'Not found', 'text/plain');
+      }
+      if (pathname === '/admin/registrations/delete') {
+        db.prepare('DELETE FROM registrations WHERE id=?').run(Number(body.id) || 0);
+        return redirect(res, '/admin/registrations');
+      }
       if (pathname === '/admin/logout') { const token = cookie(req).session; sessions.delete(token); return redirect(res, '/admin/login', { 'Set-Cookie': `session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secureCookie(req)}` }); }
       if (pathname === '/admin/lectures/save') {
         const item = { id: Number(body.id) || null, title: (body.title || '').trim(), topic: (body.topic || '').trim(), summary: (body.summary || '').trim(), detail_body: (body.detail_body || '').trim(), audience: (body.audience || '').trim(), start_at: body.start_at || '', region: (body.region || '').trim(), location: (body.location || '').trim(), format: body.format || '오프라인', price_label: (body.price_label || '').trim(), landing_url: (body.landing_url || '').trim(), published: body.published === '1' ? 1 : 0 };
@@ -357,6 +413,11 @@ async function route(req, res) {
       return send(res, 404, 'Not found', 'text/plain');
     }
     if (req.method === 'GET' && pathname === '/admin') return send(res, 200, renderDashboard(session));
+    if (req.method === 'GET' && pathname === '/admin/backup') return send(res, 200, adminShell('데이터 백업', `<div class="admin-card"><h2>신청자 DB와 업로드 이미지</h2><p>현재 정보를 하나의 압축 파일로 내려받습니다. 개인정보가 포함되므로 회사의 접근 제한 저장소에 보관해 주세요. 백업은 서버 밖에 별도로 보관해야 합니다.</p><form method="post" action="/admin/backup">${csrfField(session)}<button class="admin-primary">전체 백업 내려받기</button></form></div>`));
+    if (req.method === 'GET' && pathname === '/admin/registrations.csv') {
+      const csv = registrationAdmin.csv(new URL(req.url, 'http://local').searchParams);
+      return send(res, 200, csv, 'text/csv; charset=utf-8', { 'Content-Disposition': 'attachment; filename="registrations.csv"', 'Cache-Control': 'no-store' });
+    }
     if (req.method === 'GET' && pathname === '/admin/reviews') return send(res, 200, renderReviews(session));
     if (req.method === 'GET' && pathname === '/admin/reviews/new') return send(res, 200, reviewForm({ published: 1, sort_order: 0 }, session));
     if (req.method === 'GET' && /^\/admin\/reviews\/\d+$/.test(pathname)) { const item = db.prepare('SELECT * FROM reviews WHERE id=?').get(Number(pathname.split('/').pop())); return item ? send(res, 200, reviewForm(item, session)) : send(res, 404, 'Not found', 'text/plain'); }
@@ -365,11 +426,12 @@ async function route(req, res) {
     if (req.method === 'GET' && pathname === '/admin/instructors/new') return send(res, 200, instructorForm({}, session));
     if (req.method === 'GET' && /^\/admin\/instructors\/\d+$/.test(pathname)) { const item = db.prepare('SELECT * FROM instructors WHERE id=?').get(Number(pathname.split('/').pop())); return item ? send(res, 200, instructorForm(item, session)) : send(res, 404, 'Not found', 'text/plain'); }
     if (req.method === 'GET' && pathname === '/admin/inquiries') return send(res, 200, renderInquiries());
-    if (req.method === 'GET' && pathname === '/admin/registrations') return send(res, 200, renderRegistrations());
+    if (req.method === 'GET' && pathname === '/admin/registrations') return send(res, 200, registrationAdmin.render(new URL(req.url, 'http://local').searchParams, session));
   }
   return send(res, 404, html('페이지를 찾을 수 없습니다', '<main class="legal-page container"><h1>페이지를 찾을 수 없습니다.</h1><a href="/">홈으로 돌아가기 →</a></main>'));
 }
 
+const registrationAdmin = createRegistrationAdmin({ db, e, adminShell, csrfField, csvCell });
 const server = http.createServer((req, res) => route(req, res).catch(error => { console.error(error); if (!res.headersSent) send(res, 500, '서버 오류가 발생했습니다.', 'text/plain; charset=utf-8'); }));
 if (require.main === module) server.listen(PORT, () => console.log(`AI 미래교육원: http://localhost:${PORT}`));
 module.exports = { server, db, renderHome, renderLecture, renderPrivacy, safeUrl };
