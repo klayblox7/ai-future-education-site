@@ -167,6 +167,8 @@ test('admin can publish and update a lecture, and inquiries are stored', async (
     assert.ok(registered.consent_at);
     assert.equal(registered.consent_version, '2026-10-09-v1');
     const adminHeaders = { Cookie: cookie, Origin: base, 'Content-Type': 'application/x-www-form-urlencoded' };
+    assert.equal((await fetch(`${base}/admin/lectures/delete`, { method: 'POST', redirect: 'manual', headers: adminHeaders, body: new URLSearchParams({ csrf, id: String(active.id) }) })).status, 409);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM registrations').get().n, 1);
     const updateApplicant = async fields => fetch(`${base}/admin/registrations/update`, { method: 'POST', redirect: 'manual', headers: adminHeaders, body: new URLSearchParams({ csrf, id: String(registered.id), ...fields }) });
     assert.equal((await updateApplicant({ status: '안내 완료', notes: '문자 안내 완료', csrf: 'bad' })).status, 403);
     assert.equal((await updateApplicant({ status: '임의 상태' })).status, 400);

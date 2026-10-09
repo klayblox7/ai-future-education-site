@@ -389,6 +389,9 @@ async function route(req, res) {
         db.prepare('DELETE FROM registrations WHERE id=?').run(Number(body.id) || 0);
         return redirect(res, '/admin/registrations');
       }
+      if (pathname === '/admin/lectures/delete' && db.prepare('SELECT COUNT(*) AS n FROM registrations WHERE lecture_id=?').get(Number(body.id) || 0).n > 0) {
+        return send(res, 409, adminShell('신청 내역이 있는 강의', '<div class="admin-card"><p>신청자 기록을 보존하기 위해 삭제할 수 없습니다. 강의 수정 화면에서 공개를 해제하면 홈페이지에서 숨길 수 있습니다.</p><a class="admin-primary" href="/admin">강의 관리로</a></div>'));
+      }
       if (pathname === '/admin/logout') { const token = cookie(req).session; sessions.delete(token); return redirect(res, '/admin/login', { 'Set-Cookie': `session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secureCookie(req)}` }); }
       if (pathname === '/admin/lectures/save') {
         const item = { id: Number(body.id) || null, title: (body.title || '').trim(), topic: (body.topic || '').trim(), summary: (body.summary || '').trim(), detail_body: (body.detail_body || '').trim(), audience: (body.audience || '').trim(), start_at: body.start_at || '', region: (body.region || '').trim(), location: (body.location || '').trim(), format: body.format || '오프라인', price_label: (body.price_label || '').trim(), landing_url: (body.landing_url || '').trim(), published: body.published === '1' ? 1 : 0 };
