@@ -327,4 +327,6 @@ body:not(.admin-body) .lecture-show-more[hidden]{display:none}
 
 body:not(.admin-body) .lecture-free-badge{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;padding:3px 10px;border:1px solid #ff9b3d;border-radius:999px;background:#fff2df;color:#eb7600;font-size:13px;font-weight:400;line-height:1.35;white-space:nowrap}body:not(.admin-body) .lecture-mobile-meta{display:flex;align-items:center;gap:8px;min-width:0} @media(max-width:360px){body:not(.admin-body) .lecture-mobile-meta{gap:5px}body:not(.admin-body) .lecture-free-badge{font-size:12px;padding:3px 7px}}
 
+body:not(.admin-body) .hero-free-intro{margin-top:1.75em}body:not(.admin-body) .hero-free-intro strong{font-weight:700}body:not(.admin-body) .hero-free-word{color:#1b4de0}
+
 @media(max-width:760px){body:not(.admin-body){padding-bottom:0}}
